@@ -26,7 +26,8 @@
   #introSub { top:780px; font-size:34px; font-weight:700; color:#8E97BE; }
   #introFooter { top:970px; font-size:24px; font-weight:400; color:#5A6490; }
   .dot { position:absolute; border-radius:50%; }
-  #cloudCanvas { position:absolute; left:110px; top:110px; width:1700px; height:860px; background:#0a1033; }
+  /* 위치·크기는 JS(buildCloudSlide)에서 1700x860 영역의 72%로 줄여 가운데 정렬 */
+  #cloudCanvas { position:absolute; background:#0a1033; }
   #startOverlay {
     position:fixed; inset:0; background:#0a1033; color:#8E97BE; font-family:'Noto Sans KR', sans-serif;
     display:flex; align-items:center; justify-content:center; font-size:24px; cursor:pointer; z-index:999;
@@ -53,7 +54,11 @@
 
 <script>
 var PALETTE = ['#FFD93D','#FF4FA3','#2EE6D6','#FF8C42','#8CFF6B','#5EC8F2','#FFFFFF','#FF6B6B'];
-var PER_PAGE = 30;
+var PAGE_MIN = 20, PAGE_MAX = 25;   // 한 슬라이드당 문장 수 목표 범위
+var WORD_SIZE = 40;                  // 모든 문장 동일 글자 크기(px)
+// 워드클라우드 영역(상위 컨테이너): 1920x1080 에서 상하좌우 110px 인셋
+var AREA_LEFT = 110, AREA_TOP = 110, AREA_W = 1700, AREA_H = 860;
+var CANVAS_SCALE = 0.72;             // 캔버스를 영역의 72%로 줄여 가운데 정렬
 var stage = document.getElementById('stage');
 var slideIntro = document.getElementById('slideIntro');
 var slides = [];       // array of DOM elements, index 0 = intro
@@ -80,10 +85,26 @@ function addDots() {
   }
 }
 
-function splitEvenly(arr, maxPerPage) {
+// 한 페이지 평균 문장 수(n / 페이지 수)가 PAGE_MIN~PAGE_MAX 에 들어오는 가장 적은 페이지 수.
+// 25개 이하는 1페이지. 범위를 맞출 수 없는 개수(예: 26~39, 51~59)는
+// 범위에 가장 가까운 페이지 수를 고르고, 같으면 페이지 수가 적은 쪽을 고른다.
+function choosePageCount(n) {
+  if (n <= PAGE_MAX) return 1;
+  var best = 1, bestDist = Infinity;
+  for (var p = 1; p <= n; p++) {
+    var avg = n / p;
+    if (avg >= PAGE_MIN && avg <= PAGE_MAX) return p;
+    var dist = avg > PAGE_MAX ? avg - PAGE_MAX : PAGE_MIN - avg;
+    if (dist < bestDist) { best = p; bestDist = dist; }
+    if (avg < PAGE_MIN) break;   // 페이지를 더 늘리면 평균이 더 작아질 뿐
+  }
+  return best;
+}
+
+function splitEvenly(arr) {
   var n = arr.length;
   if (n === 0) return [];
-  var pages = Math.ceil(n / maxPerPage);
+  var pages = choosePageCount(n);
   var base = Math.floor(n / pages);
   var extra = n % pages;
   var result = []; var idx = 0;
@@ -100,12 +121,58 @@ function buildCloudSlide(pagePhrases) {
   slide.className = 'slide';
   var canvas = document.createElement('canvas');
   canvas.id = 'cloudCanvas';
-  canvas.width = 1700; canvas.height = 860;
+  // 캔버스를 기존 영역의 72%로 줄이고, 영역 안에서 가로/세로 정가운데에 배치
+  var cw = Math.round(AREA_W * CANVAS_SCALE);   // 1224
+  var ch = Math.round(AREA_H * CANVAS_SCALE);   // 619
+  canvas.width = cw; canvas.height = ch;
+  canvas.style.width = cw + 'px'; canvas.style.height = ch + 'px';
+  canvas.style.left = (AREA_LEFT + (AREA_W - cw) / 2) + 'px';
+  canvas.style.top = (AREA_TOP + (AREA_H - ch) / 2) + 'px';
   slide.appendChild(canvas);
   stage.appendChild(slide);
-  var list = pagePhrases.map(function (p) { return [p, 40]; }); // 균일 크기
-  // 문구가 적을수록 격자를 넓혀서 가운데에 뭉치지 않게 (14~90)
-  var gridSize = Math.max(30, Math.min(90, Math.round(600 / pagePhrases.length)));
+  drawCloud(canvas, pagePhrases, WORD_SIZE, 1);
+  return slide;
+}
+
+// 캔버스 가장자리 EDGE_PX 안쪽에 글자 픽셀이 있으면 잘렸거나 닿은 것으로 본다
+var EDGE_PX = 2;
+function touchesEdge(canvas) {
+  var W = canvas.width, H = canvas.height;
+  var d = canvas.getContext('2d').getImageData(0, 0, W, H).data;
+  function ink(x, y) {
+    var i = (y * W + x) * 4;
+    return Math.abs(d[i] - 10) + Math.abs(d[i + 1] - 16) + Math.abs(d[i + 2] - 51) > 40; // 배경 #0a1033 과 다르면 글자
+  }
+  for (var x = 0; x < W; x++) for (var e = 0; e < EDGE_PX; e++)
+    if (ink(x, e) || ink(x, H - 1 - e)) return true;
+  for (var y = 0; y < H; y++) for (var e2 = 0; e2 < EDGE_PX; e2++)
+    if (ink(e2, y) || ink(W - 1 - e2, y)) return true;
+  return false;
+}
+
+// shrinkToFit:false 에서는 자리가 없는 문장이 조용히 빠진다.
+// 그래서 다 그린 뒤 빠진 문장이 있거나 가장자리에 닿으면 새 배치로 다시 그린다.
+// 같은 크기로 RETRY_SAME_SIZE 번 실패하면, 그 페이지 전체 글자 크기를 10%씩 같이 줄인다(페이지 안에서는 모두 동일 크기 유지).
+var RETRY_SAME_SIZE = 3, MAX_ATTEMPTS = 8, MIN_WORD_SIZE = 24;
+function drawCloud(canvas, phrases, size, attempt) {
+  var skipped = 0;
+  function onDrawn(e) { if (!e.detail.drawn) skipped++; }
+  function onStop() {
+    canvas.removeEventListener('wordclouddrawn', onDrawn);
+    canvas.removeEventListener('wordcloudstop', onStop);
+    var edge = touchesEdge(canvas);
+    if (skipped === 0 && !edge) return;
+    if (attempt >= MAX_ATTEMPTS) {
+      console.warn('[display] 워드클라우드: ' + attempt + '번 시도 후에도 누락 ' + skipped + '개, 가장자리 닿음 ' + edge);
+      return;
+    }
+    var nextSize = attempt >= RETRY_SAME_SIZE ? Math.max(MIN_WORD_SIZE, Math.round(size * 0.9)) : size;
+    drawCloud(canvas, phrases, nextSize, attempt + 1);
+  }
+  canvas.addEventListener('wordclouddrawn', onDrawn);
+  canvas.addEventListener('wordcloudstop', onStop);
+
+  var list = phrases.map(function (p) { return [p, size]; }); // 모든 문장 동일 크기
   WordCloud(canvas, {
     list: list,
     weightFactor: 1,
@@ -113,14 +180,15 @@ function buildCloudSlide(pagePhrases) {
     fontWeight: '700',
     color: function () { return PALETTE[Math.floor(Math.random() * PALETTE.length)]; },
     backgroundColor: '#0a1033',
-    gridSize: gridSize,
-    shrinkToFit: true,
-    minSize: 12,
-    rotateRatio: 0,
+    gridSize: 20,
+    shrinkToFit: false,
+    rotateRatio: 0.7,
+    minRotation: -Math.PI / 6,
+    maxRotation: Math.PI / 6,
+    rotationSteps: 0,
     drawOutOfBound: false,
     shuffle: true
   });
-  return slide;
 }
 
 function render() {
@@ -156,7 +224,7 @@ function loadAndBuild() {
     // 기존 워드클라우드 슬라이드 제거 후 재생성
     slides.slice(1).forEach(function (s) { s.remove(); });
     slides = [slideIntro];
-    var pages = splitEvenly(phrases, PER_PAGE);
+    var pages = splitEvenly(phrases);
     pages.forEach(function (page) { slides.push(buildCloudSlide(page)); });
     current = 0;
     render();
