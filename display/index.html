@@ -150,44 +150,90 @@ function touchesEdge(canvas) {
   return false;
 }
 
-// shrinkToFit:false 에서는 자리가 없는 문장이 조용히 빠진다.
-// 그래서 다 그린 뒤 빠진 문장이 있거나 가장자리에 닿으면 새 배치로 다시 그린다.
-// 같은 크기로 RETRY_SAME_SIZE 번 실패하면, 그 페이지 전체 글자 크기를 10%씩 같이 줄인다(페이지 안에서는 모두 동일 크기 유지).
 var RETRY_SAME_SIZE = 3, MAX_ATTEMPTS = 8, MIN_WORD_SIZE = 24;
-function drawCloud(canvas, phrases, size, attempt) {
-  var skipped = 0;
-  function onDrawn(e) { if (!e.detail.drawn) skipped++; }
-  function onStop() {
-    canvas.removeEventListener('wordclouddrawn', onDrawn);
-    canvas.removeEventListener('wordcloudstop', onStop);
-    var edge = touchesEdge(canvas);
-    if (skipped === 0 && !edge) return;
-    if (attempt >= MAX_ATTEMPTS) {
-      console.warn('[display] 워드클라우드: ' + attempt + '번 시도 후에도 누락 ' + skipped + '개, 가장자리 닿음 ' + edge);
-      return;
-    }
-    var nextSize = attempt >= RETRY_SAME_SIZE ? Math.max(MIN_WORD_SIZE, Math.round(size * 0.9)) : size;
-    drawCloud(canvas, phrases, nextSize, attempt + 1);
-  }
-  canvas.addEventListener('wordclouddrawn', onDrawn);
-  canvas.addEventListener('wordcloudstop', onStop);
+var GRID_SIZE = 35;          // 단어 간격 (클수록 넓음)
+var CENTER_RATIO = 0.3;      // 섞은 리스트의 앞 30% = 중앙 그룹(회전 없음), 나머지 = 가장자리 그룹(회전)
 
-  var list = phrases.map(function (p) { return [p, size]; }); // 모든 문장 동일 크기
-  WordCloud(canvas, {
-    list: list,
+function shuffled(arr) {
+  var a = arr.slice();
+  for (var i = a.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var t = a[i]; a[i] = a[j]; a[j] = t;
+  }
+  return a;
+}
+
+// WordCloud 한 번 호출. 다 그리면(wordcloudstop) done() 호출
+function runPass(canvas, phrases, size, extra, done) {
+  if (phrases.length === 0) {
+    if (extra.clearCanvas) {
+      var ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#0a1033';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    setTimeout(done, 0);
+    return;
+  }
+  function onStop() {
+    canvas.removeEventListener('wordcloudstop', onStop);
+    setTimeout(done, 0);   // 이전 호출이 완전히 끝난 뒤 다음 호출
+  }
+  canvas.addEventListener('wordcloudstop', onStop);
+  var opts = {
+    list: phrases.map(function (p) { return [p, size]; }), // 모든 문장 동일 크기
     weightFactor: 1,
     fontFamily: "'Noto Sans KR', sans-serif",
     fontWeight: '700',
     color: function () { return PALETTE[Math.floor(Math.random() * PALETTE.length)]; },
     backgroundColor: '#0a1033',
-    gridSize: 20,
+    gridSize: GRID_SIZE,
     shrinkToFit: false,
-    rotateRatio: 0.7,
-    minRotation: -Math.PI / 6,
-    maxRotation: Math.PI / 6,
-    rotationSteps: 0,
     drawOutOfBound: false,
-    shuffle: true
+    shuffle: false          // 순서는 우리가 섞은 그대로 사용
+  };
+  for (var k in extra) opts[k] = extra[k];
+  WordCloud(canvas, opts);
+}
+
+// 한 번의 시도 = 섞기 → 중앙 그룹(회전 없음, 캔버스 지움) → 가장자리 그룹(회전, 캔버스 유지).
+// shrinkToFit:false 에서는 자리가 없는 문장이 조용히 빠지므로, 시도 전체가 끝난 뒤
+// 빠진 문장이 있거나 가장자리에 닿으면 처음(섞기)부터 다시 그린다.
+// 같은 크기로 RETRY_SAME_SIZE 번 실패하면 그 페이지 전체 글자 크기를 10%씩 같이 줄인다.
+function drawCloud(canvas, phrases, size, attempt) {
+  var order = shuffled(phrases);
+  var nCenter = Math.round(order.length * CENTER_RATIO);
+  var centerGroup = order.slice(0, nCenter);
+  var edgeGroup = order.slice(nCenter);
+  var skipped = 0;
+  function onDrawn(e) { if (!e.detail.drawn) skipped++; }
+  canvas.addEventListener('wordclouddrawn', onDrawn);
+
+  canvas.dataset.attempt = attempt;
+  canvas.dataset.size = size;
+  canvas.dataset.done = '';
+
+  runPass(canvas, centerGroup, size, { rotateRatio: 0, clearCanvas: true }, function () {
+    runPass(canvas, edgeGroup, size, {
+      rotateRatio: 1,
+      minRotation: -Math.PI / 6,
+      maxRotation: Math.PI / 6,
+      rotationSteps: 0,
+      clearCanvas: false     // 중앙 그룹을 지우지 않고 남은 빈자리에 이어서 그림
+    }, function () {
+      canvas.removeEventListener('wordclouddrawn', onDrawn);
+      var edge = touchesEdge(canvas);
+      canvas.dataset.skipped = skipped;
+      canvas.dataset.edge = edge ? '1' : '0';
+      if ((skipped === 0 && !edge) || attempt >= MAX_ATTEMPTS) {
+        if (skipped || edge) {
+          console.warn('[display] 워드클라우드: ' + attempt + '번 시도 후에도 누락 ' + skipped + '개, 가장자리 닿음 ' + edge);
+        }
+        canvas.dataset.done = '1';
+        return;
+      }
+      var nextSize = attempt >= RETRY_SAME_SIZE ? Math.max(MIN_WORD_SIZE, Math.round(size * 0.9)) : size;
+      drawCloud(canvas, phrases, nextSize, attempt + 1);
+    });
   });
 }
 
