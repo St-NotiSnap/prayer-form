@@ -18,11 +18,13 @@
   .center { position:absolute; left:0; width:1920px; text-align:center; }
   #introTitle1 { top:210px; font-size:92px; font-weight:900; color:#FFD93D; line-height:1.3; }
   #introTitle2 { top:338px; font-size:92px; font-weight:900; color:#FFD93D; line-height:1.3; }
-  #introCount { top:492px; font-size:150px; font-weight:900; color:#fff; }
-  #introLabel { top:670px; font-size:30px; font-weight:400; color:#B9C2E0; }
+  #introCountRow { top:492px; display:flex; align-items:baseline; justify-content:center; gap:16px; }
+  #introCount { font-size:150px; font-weight:900; color:#fff; }
+  #introCountUnit { font-size:30px; font-weight:400; color:#B9C2E0; }
+  #introLabel { top:700px; font-size:30px; font-weight:400; color:#B9C2E0; }
   #introEmpty { top:492px; font-size:34px; font-weight:700; color:#8E97BE; line-height:1.6; width:1920px; }
-  #introSub { top:755px; font-size:34px; font-weight:700; color:#8E97BE; }
-  #introFooter { top:980px; font-size:24px; font-weight:400; color:#5A6490; }
+  #introSub { top:780px; font-size:34px; font-weight:700; color:#8E97BE; }
+  #introFooter { top:970px; font-size:24px; font-weight:400; color:#5A6490; }
   .dot { position:absolute; border-radius:50%; }
   #cloudCanvas { position:absolute; left:110px; top:110px; width:1700px; height:860px; background:#0a1033; }
   #startOverlay {
@@ -38,8 +40,10 @@
       <div class="slide active" id="slideIntro">
         <div class="center" id="introTitle1">자녀된 우리가 오늘,</div>
         <div class="center" id="introTitle2">아버지께 드릴 기도</div>
-        <div class="center" id="introCount"></div>
-        <div class="center" id="introLabel">명의 마음이 모였습니다</div>
+        <div class="center" id="introCountRow">
+          <span id="introCount"></span><span id="introCountUnit">명의</span>
+        </div>
+        <div class="center" id="introLabel">마음이 모였습니다</div>
         <div class="center" id="introEmpty" style="display:none">아직 도착한<br>기도제목이 없습니다</div>
         <div class="center" id="introSub">성도님들이 남겨주신 익명의 기도제목입니다</div>
         <div class="center" id="introFooter">함께그린교회  ·  2026 DAY AND NIGHT</div>
@@ -100,6 +104,8 @@ function buildCloudSlide(pagePhrases) {
   slide.appendChild(canvas);
   stage.appendChild(slide);
   var list = pagePhrases.map(function (p) { return [p, 40]; }); // 균일 크기
+  // 문구가 적을수록 격자를 넓혀서 가운데에 뭉치지 않게 (14~90)
+  var gridSize = Math.max(30, Math.min(90, Math.round(600 / pagePhrases.length)));
   WordCloud(canvas, {
     list: list,
     weightFactor: 1,
@@ -107,7 +113,9 @@ function buildCloudSlide(pagePhrases) {
     fontWeight: '700',
     color: function () { return PALETTE[Math.floor(Math.random() * PALETTE.length)]; },
     backgroundColor: '#0a1033',
-    gridSize: 14,
+    gridSize: gridSize,
+    shrinkToFit: true,
+    minSize: 12,
     rotateRatio: 0,
     drawOutOfBound: false,
     shuffle: true
@@ -141,7 +149,7 @@ function loadAndBuild() {
   }).then(function (phrases) {
     document.getElementById('introCount').textContent = phrases.length;
     document.getElementById('introLabel').style.display = phrases.length > 0 ? 'block' : 'none';
-    document.getElementById('introCount').style.display = phrases.length > 0 ? 'block' : 'none';
+    document.getElementById('introCountRow').style.display = phrases.length > 0 ? 'flex' : 'none';
     document.getElementById('introEmpty').innerHTML = EMPTY_MSG;
     document.getElementById('introEmpty').style.display = phrases.length > 0 ? 'none' : 'block';
 
@@ -156,7 +164,7 @@ function loadAndBuild() {
     console.error('[display] /api/results 불러오기 실패:', err);
     // 에러는 인트로 자리에서만 표시하고, 기존 워드클라우드 슬라이드는 그대로 유지
     if (slides.length === 0) slides = [slideIntro];
-    document.getElementById('introCount').style.display = 'none';
+    document.getElementById('introCountRow').style.display = 'none';
     document.getElementById('introLabel').style.display = 'none';
     document.getElementById('introEmpty').innerHTML = ERROR_MSG;
     document.getElementById('introEmpty').style.display = 'block';
