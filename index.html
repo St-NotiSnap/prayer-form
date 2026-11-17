@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>기도제목</title>
+<style>
+  body { margin:0; height:100vh; display:flex; align-items:center; justify-content:center;
+    background:#0a1033; color:#fff; font-family:-apple-system,'Apple SD Gothic Neo',sans-serif; }
+  .card { width:90%; max-width:420px; text-align:center; }
+  h1 { font-size:22px; color:#FFD93D; margin-bottom:8px; line-height:1.4; }
+  p.sub { font-size:14px; color:#8E97BE; margin-bottom:28px; }
+  input { width:100%; box-sizing:border-box; padding:16px; font-size:18px; text-align:center;
+    border-radius:12px; border:none; outline:none; margin-bottom:8px; background:#141b47; color:#fff; }
+  .count { font-size:12px; color:#5A6490; margin-bottom:20px; }
+  button { width:100%; padding:16px; font-size:17px; font-weight:bold; border:none; border-radius:12px;
+    background:#FF4FA3; color:#0a1033; cursor:pointer; }
+  button:disabled { opacity:0.5; }
+  .done { display:none; }
+  .done h2 { color:#2EE6D6; font-size:24px; }
+</style>
+</head>
+<body>
+  <div class="card" id="formCard">
+    <h1>오늘의 기도제목을<br>한 단어, 한 문장으로 적어주세요</h1>
+    <p class="sub">5~10글자 이내로 작성해주세요</p>
+    <form id="prayerForm" target="hidden_frame" method="POST"
+          action="https://script.google.com/macros/s/AKfycbxzZ7Fp8l2rCiw0jG1K0fSGZwMg6J6iYMRuXKZFVp_6uF5IF50AopTJeQ9b8PuOPIyq/exec">
+      <input name="text" id="text" maxlength="12" placeholder="" autocomplete="off">
+      <div class="count" id="count">0 / 10자</div>
+      <button id="submitBtn" type="submit">제출하기</button>
+    </form>
+  </div>
+  <div class="card done" id="doneCard">
+    <h2>함께 기도합니다</h2>
+    <p class="sub">함께해주셔서 감사합니다</p>
+  </div>
+  <iframe name="hidden_frame" style="display:none"></iframe>
+  <script>
+    var input = document.getElementById('text');
+    input.addEventListener('input', function () {
+      document.getElementById('count').innerText = input.value.length + ' / 10자';
+    });
+    document.getElementById('prayerForm').addEventListener('submit', function (e) {
+      var val = input.value.trim();
+      if (val.length < 5 || val.length > 10) {
+        e.preventDefault();
+        alert('5~10자로 입력해주세요');
+        return;
+      }
+      document.getElementById('submitBtn').disabled = true;
+      setTimeout(function () {
+        document.getElementById('formCard').style.display = 'none';
+        document.getElementById('doneCard').style.display = 'block';
+      }, 800);
+    });
+  </script>
+</body>
+</html>
